@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D-Charts Mesh Segmentation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>D-Charts Mesh Segmentation</h1>
+            <p class="lead">Upload a 3D mesh file and segment it into developable charts</p>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Upload Mesh</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="upload-form">
+                            <div class="mb-3">
+                                <label for="mesh-file" class="form-label">Mesh File (OBJ format)</label>
+                                <input class="form-control" type="file" id="mesh-file" accept=".obj">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Upload</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5>Segmentation Parameters</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="segment-form">
+                            <input type="hidden" id="filename" name="filename">
+                            
+                            <div class="mb-3">
+                                <label for="num-charts" class="form-label">Number of Charts</label>
+                                <input type="range" class="form-range" id="num-charts" min="2" max="16" value="8">
+                                <div class="d-flex justify-content-between">
+                                    <span>2</span>
+                                    <span id="num-charts-value">8</span>
+                                    <span>16</span>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="f-max" class="form-label">Maximum Fitting Error (F_max)</label>
+                                <input type="range" class="form-range" id="f-max" min="0.01" max="0.5" step="0.01" value="0.1">
+                                <div class="d-flex justify-content-between">
+                                    <span>0.01</span>
+                                    <span id="f-max-value">0.1</span>
+                                    <span>0.5</span>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="max-iter" class="form-label">Maximum Iterations</label>
+                                <input type="range" class="form-range" id="max-iter" min="1" max="100" value="10">
+                                <div class="d-flex justify-content-between">
+                                    <span>1</span>
+                                    <span id="max-iter-value">10</span>
+                                    <span>100</span>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="min-size-percent" class="form-label">Minimum Chart Size (% of total faces)</label>
+                                <input type="range" class="form-range" id="min-size-percent" min="0.5" max="10" step="0.5" value="2">
+                                <div class="d-flex justify-content-between">
+                                    <span>0.5%</span>
+                                    <span id="min-size-percent-value">2%</span>
+                                    <span>10%</span>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-success" disabled>Segment Mesh</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="loading">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Processing mesh segmentation...</p>
+                </div>
+
+                <div class="result-section">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Segmentation Results</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="result-info">
+                                <p><strong>Total Faces:</strong> <span id="total-faces"></span></p>
+                                <p><strong>Number of Charts:</strong> <span id="num-valid-charts"></span></p>
+                            </div>
+                            
+                            <h6 class="mt-4">Chart Statistics</h6>
+                            <div id="chart-stats" class="chart-stats"></div>
+                            
+                            <div class="mt-4">
+                                <a id="download-link" class="btn btn-primary" target="_blank">Download Segmented Mesh</a>
+                                <a id="view-link" class="btn btn-outline-secondary ms-2" target="_blank">View in Browser</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Update range slider values
+        document.getElementById('num-charts').addEventListener('input', function() {
+            document.getElementById('num-charts-value').textContent = this.value;
+        });
+        
+        document.getElementById('f-max').addEventListener('input', function() {
+            document.getElementById('f-max-value').textContent = this.value;
+        });
+        
+        document.getElementById('max-iter').addEventListener('input', function() {
+            document.getElementById('max-iter-value').textContent = this.value;
+        });
+        
+        document.getElementById('min-size-percent').addEventListener('input', function() {
+            document.getElementById('min-size-percent-value').textContent = this.value + '%';
+        });
+
+        // Handle file upload
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('mesh-file');
+            if (!fileInput.files.length) {
+                alert('Please select a file to upload');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('mesh_file', fileInput.files[0]);
+            
+            // Show loading spinner
+            document.querySelector('.loading').style.display = 'block';
+            document.querySelector('.result-section').style.display = 'none';
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    document.querySelector('.loading').style.display = 'none';
+                    return;
+                }
+                
+                // Enable segmentation form and set filename
+                document.getElementById('filename').value = data.filename;
+                document.querySelector('#segment-form button').disabled = false;
+                document.querySelector('.loading').style.display = 'none';
+                
+                alert('File uploaded successfully. You can now adjust parameters and segment the mesh.');
+            })
+            .catch(error => {
+                alert('Error uploading file: ' + error);
+                document.querySelector('.loading').style.display = 'none';
+            });
+        });
+
+        // Handle segmentation
+        document.getElementById('segment-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const filename = document.getElementById('filename').value;
+            if (!filename) {
+                alert('Please upload a mesh file first');
+                return;
+            }
+            
+            const params = {
+                filename: filename,
+                num_charts: document.getElementById('num-charts').value,
+                f_max: document.getElementById('f-max').value,
+                max_iter: document.getElementById('max-iter').value,
+                min_size_percent: document.getElementById('min-size-percent').value
+            };
+            
+            // Show loading spinner
+            document.querySelector('.loading').style.display = 'block';
+            document.querySelector('.result-section').style.display = 'none';
+            
+            fetch('/segment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(params)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    document.querySelector('.loading').style.display = 'none';
+                    return;
+                }
+                
+                // Update results section
+                document.getElementById('total-faces').textContent = data.total_faces;
+                document.getElementById('num-valid-charts').textContent = data.num_valid_charts;
+                
+                // Update chart statistics
+                const chartStatsContainer = document.getElementById('chart-stats');
+                chartStatsContainer.innerHTML = '';
+                
+                // Define chart colors (same as in visualization.py)
+                const chartColors = [
+                    '#FF0000', // Red
+                    '#0000FF', // Blue
+                    '#00FF00', // Green
+                    '#FFFF00', // Yellow
+                    '#FF00FF', // Magenta
+                    '#00FFFF', // Cyan
+                    '#FF8000', // Orange
+                    '#8000FF', // Purple
+                    '#808000', // Olive
+                    '#008080', // Teal
+                    '#800080', // Purple
+                    '#804000'  // Brown
+                ];
+                
+                data.chart_stats.forEach((chart, index) => {
+                    const chartDiv = document.createElement('div');
+                    chartDiv.className = 'mb-2';
+                    
+                    const chartLabel = document.createElement('div');
+                    chartLabel.className = 'd-flex justify-content-between';
+                    chartLabel.innerHTML = `<span>Chart ${chart.id}</span><span>${chart.size} faces (${chart.percentage}%)</span>`;
+                    
+                    const chartBar = document.createElement('div');
+                    chartBar.className = 'chart-bar';
+                    chartBar.style.width = `${chart.percentage}%`;
+                    chartBar.style.backgroundColor = chartColors[index % chartColors.length];
+                    
+                    chartDiv.appendChild(chartLabel);
+                    chartDiv.appendChild(chartBar);
+                    chartStatsContainer.appendChild(chartDiv);
+                });
+                
+                // Update download and view links
+                document.getElementById('download-link').href = `/output/${data.output_filename}`;
+                document.getElementById('view-link').href = `/view/${data.output_filename}`;
+                
+                // Show results
+                document.querySelector('.loading').style.display = 'none';
+                document.querySelector('.result-section').style.display = 'block';
+            })
+            .catch(error => {
+                alert('Error segmenting mesh: ' + error);
+                document.querySelector('.loading').style.display = 'none';
+            });
+        });
+    </script>
+</body>
+</html>
